@@ -1,1 +1,0 @@
-export const conneStr = "mongodb+srv://cmkhairnar05:jaisadguru@cluster0.1hj5w.mongodb.net/ecommDB?retryWrites=true&w=majority&appName=Cluster0"
