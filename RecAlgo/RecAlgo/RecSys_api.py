@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
+import re
 
 
 load_dotenv()
@@ -159,6 +160,11 @@ def query_products(request: QueryRequest):
         update_prompt = create_update_prompt(request.prompt)
         structured_query = create_structured_query(update_prompt)
     
+    # Ensure structured_query is a dict
+    if not isinstance(structured_query, dict):
+        structured_query = {}
+    print(f"Final structured query: {structured_query}")
+
     current_structured_query = structured_query
     result_df = filter_products(structured_query)
     return {"product_ids": result_df["product_id"].tolist()}
@@ -205,42 +211,57 @@ def send_query(model, content):
             raise Exception("Both API keys failed")
         return response
 
+def extract_json_from_text(text):
+    """
+    Extracts the first JSON object from a string, even if surrounded by extra text.
+    """
+    try:
+        # Try direct parsing first
+        return json.loads(text)
+    except Exception:
+        # Fallback: extract JSON object using regex
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except Exception:
+                pass
+    return {}
+
 def create_structured_query(content):
     model1 = "qwen/qwen-2.5-72b-instruct:free"
     model2 = "microsoft/phi-3-medium-128k-instruct:free"
     model3 = "meta-llama/llama-3-8b-instruct:free"
     model4 = "qwen2.5-7b-instruct-mlx"
 
-    try:
-        response = send_query(model1, content)
-        if response.status_code == 200:
-            structured_text = response.json()['choices'][0]['message']['content']
-            return json.loads(structured_text)
-    except:
-        pass
-    
-    try:
-        response = send_query(model2, content)
-        if response.status_code == 200:
-            structured_text = response.json()['choices'][0]['message']['content']
-            return json.loads(structured_text)
-    except:
-        pass
-    
-    try:
-        response = send_query(model3, content)
-        if response.status_code == 200:
-            structured_text = response.json()['choices'][0]['message']['content']
-            return json.loads(structured_text)
-    except:
-        pass
-    
+    for model in [model1, model2, model3]:
+        try:
+            response = send_query(model, content)
+            if response.status_code == 200:
+                structured_text = response.json()['choices'][0]['message']['content']
+                structured_query = extract_json_from_text(structured_text)
+                if isinstance(structured_query, dict) and structured_query:
+                    print(f"Structured query from {model}: {structured_query}")
+                    return structured_query
+                else:
+                    print(f"Failed to parse structured query from {model}: {structured_text}")
+        except Exception as e:
+            print(f"Error with model {model}: {e}")
+
+    # Local fallback
     try:
         model = lms.llm(model4)
         result = model.respond(content)
-        return json.loads(result.content)
-    except:
-        return {}
+        structured_query = extract_json_from_text(result.content)
+        if isinstance(structured_query, dict) and structured_query:
+            print(f"Structured query from local model: {structured_query}")
+            return structured_query
+        else:
+            print(f"Failed to parse structured query from local model: {result.content}")
+    except Exception as e:
+        print(f"Local model error: {e}")
+
+    return {}
 
 def filter_products(structured_query, min_candidates: int = 3):
     filtered_df = df.copy()
