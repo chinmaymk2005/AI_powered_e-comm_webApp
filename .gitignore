@@ -2,7 +2,7 @@
 
 # dependencies
 /node_modules 
-/app/utils/db.js
+db.js
 .pnp
 .pnp.*
 .yarn/*
